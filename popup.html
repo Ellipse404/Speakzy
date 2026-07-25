@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>Cream</title>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="hdr">
+        <div class="logo">CREAM</div>
+        <div id="statusPill" class="pill" data-testid="popup-status-pill">off</div>
+      </header>
+
+      <section class="row">
+        <label class="switch">
+          <input type="checkbox" id="enabledToggle" data-testid="popup-enabled-toggle" />
+          <span class="track"></span>
+        </label>
+        <div>
+          <div class="lbl">Voice control</div>
+          <div class="sub" id="tabInfo">Not on a YouTube tab</div>
+        </div>
+      </section>
+
+      <section class="block">
+        <div class="lbl">Wake word</div>
+        <input id="wakeWord" data-testid="popup-wake-word" class="inp" spellcheck="false" />
+      </section>
+
+      <section class="grid2">
+        <div class="block">
+          <div class="lbl">Default seek</div>
+          <input id="defaultSeek" data-testid="popup-default-seek" type="number" min="1" max="120" class="inp" />
+        </div>
+        <div class="block">
+          <div class="lbl">Multiplier</div>
+          <input id="multiplier" data-testid="popup-multiplier" type="number" min="1" max="10" step="1" class="inp" />
+        </div>
+      </section>
+
+      <section class="block">
+        <div class="lbl">Dashboard URL (optional)</div>
+        <input id="apiBase" data-testid="popup-api-base" class="inp" placeholder="https://your-dashboard.com" spellcheck="false" />
+      </section>
+
+      <button id="saveBtn" class="btn" data-testid="popup-save-btn">SAVE</button>
+
+      <footer class="foot">
+        <a id="openDash" href="#" data-testid="popup-open-dashboard">OPEN DASHBOARD ↗</a>
+        <a id="openOptions" href="#" data-testid="popup-open-options">SETTINGS</a>
+      </footer>
+
+      <div class="hint">
+        Say <b>"cream pause"</b>, <b>"cream back 10 seconds"</b>, <b>"cream fullscreen"</b>
+      </div>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

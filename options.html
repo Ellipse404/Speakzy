@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Cream — Setup</title>
+  <link rel="stylesheet" href="popup.css" />
+  <style>
+    body { width: 480px; padding: 0; }
+    .wrap { padding: 24px; }
+    h1 { font-family: "Outfit", sans-serif; font-size: 32px; font-weight: 900; letter-spacing: -0.02em; }
+    .step { border: 2px solid #09090b; padding: 14px; box-shadow: 4px 4px 0 0 #09090b; margin-top: 14px; }
+    .step h3 { font-family: "Outfit", sans-serif; font-size: 16px; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 8px; }
+    .step p { line-height: 1.6; }
+    .ok { background: #22c55e; color: #fff; padding: 4px 8px; border: 2px solid #09090b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; font-size: 10px; display: inline-block; }
+    .warn { background: #ffd700; color: #09090b; padding: 4px 8px; border: 2px solid #09090b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; font-size: 10px; display: inline-block; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>CREAM SETUP</h1>
+    <p style="margin-top: 8px; color: #52525b;">Control YouTube with your voice. Follow these 3 steps.</p>
+
+    <div class="step">
+      <h3>1 · Grant microphone access</h3>
+      <p>Click below and allow the microphone prompt. This lets Cream hear the wake word "cream".</p>
+      <button class="btn" id="micBtn" data-testid="options-mic-btn" style="margin-top:10px;">REQUEST MIC ACCESS</button>
+      <div id="micStatus" data-testid="options-mic-status" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="step">
+      <h3>2 · Open YouTube</h3>
+      <p>Cream runs automatically on <b>youtube.com</b>. You'll see a small <b>CREAM</b> badge in the corner when it's listening.</p>
+      <button class="btn" id="openYt" data-testid="options-open-yt" style="margin-top:10px;">OPEN YOUTUBE ↗</button>
+    </div>
+
+    <div class="step">
+      <h3>3 · Say a command</h3>
+      <p>Prefix every command with the wake word.</p>
+      <ul style="margin-top:8px; line-height:2;">
+        <li>› <b>"cream pause"</b> — pause the video</li>
+        <li>› <b>"cream play"</b> — resume</li>
+        <li>› <b>"cream back 10 seconds"</b> — rewind 10s</li>
+        <li>› <b>"cream forward 30 seconds"</b> — skip 30s</li>
+        <li>› <b>"cream mute"</b> / <b>"cream unmute"</b></li>
+        <li>› <b>"cream volume up"</b> / <b>"cream volume down"</b></li>
+        <li>› <b>"cream fullscreen"</b> — toggle fullscreen</li>
+        <li>› <b>"cream next video"</b> — go to the next video</li>
+      </ul>
+    </div>
+
+    <div class="step">
+      <h3>Dashboard (optional)</h3>
+      <p>Paste your dashboard URL to sync command history and settings.</p>
+      <input id="apiBase" data-testid="options-api-base" class="inp" placeholder="https://your-dashboard.com" style="width:100%; margin-top:8px;" />
+      <button class="btn" id="saveApi" data-testid="options-save-api" style="margin-top:10px;">SAVE</button>
+    </div>
+
+    <div class="step">
+      <h3>Debug Diagnostics</h3>
+      <p>Real-time execution log of background worker and speech recognition:</p>
+      <pre id="debugLogs" style="background: #f4f4f5; border: 2px solid #09090b; padding: 10px; margin-top: 8px; font-family: monospace; font-size: 11px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></pre>
+      <button class="btn" id="clearLogsBtn" style="margin-top:10px; font-size:11px; padding: 4px 8px;">CLEAR LOGS</button>
+    </div>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>

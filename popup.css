@@ -1,0 +1,79 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Outfit:wght@700;900&display=swap");
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  width: 320px;
+  background: #ffffff;
+  color: #09090b;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+}
+.wrap { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.hdr { display: flex; align-items: center; justify-content: space-between; }
+.logo {
+  font-family: "Outfit", sans-serif;
+  font-weight: 900;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+.pill {
+  padding: 4px 8px;
+  background: #f4f4f5;
+  border: 2px solid #09090b;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-size: 10px;
+}
+.pill.on { background: #ff3333; color: #fff; }
+.row { display: flex; align-items: center; gap: 12px; }
+.lbl {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.sub { font-size: 11px; color: #52525b; }
+.block { display: flex; flex-direction: column; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.inp {
+  border: 2px solid #09090b;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  background: #fff;
+  outline: none;
+  border-radius: 0;
+}
+.inp:focus { box-shadow: 3px 3px 0 0 #ff3333; }
+.btn {
+  background: #ff3333;
+  color: #fff;
+  border: 2px solid #09090b;
+  box-shadow: 4px 4px 0 0 #09090b;
+  padding: 10px 14px;
+  font-family: "Outfit", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+.btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 0 #09090b; }
+.foot { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 0.15em; }
+.foot a { color: #09090b; text-decoration: none; border-bottom: 1px solid #09090b; padding-bottom: 2px; font-weight: 700; }
+.hint {
+  padding: 10px; background: #f4f4f5; border: 2px dashed #09090b; font-size: 11px; line-height: 1.5;
+}
+
+/* Toggle */
+.switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.track {
+  position: absolute; cursor: pointer; inset: 0;
+  background: #e4e4e7; border: 2px solid #09090b; transition: background 0.15s;
+}
+.track::before {
+  content: ""; position: absolute; height: 14px; width: 14px; left: 2px; top: 2px;
+  background: #09090b; transition: transform 0.15s;
+}
+.switch input:checked + .track { background: #ff3333; }
+.switch input:checked + .track::before { transform: translateX(20px); background: #fff; }
