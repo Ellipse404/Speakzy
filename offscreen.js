@@ -4,12 +4,18 @@
 
 let recognition = null;
 let running = false;
+let isStarting = false;
 let currentStatus = "idle";
+let consecutiveFailures = 0;
 let settings = {
   enabled: true,
   wakeWord: "cream"
 };
 let restartTimer = null;
+
+// Sticky Wake Window state
+let wakeActive = false;
+let wakeTimer = null;
 
 function logDebug(msg) {
   chrome.runtime.sendMessage({
@@ -47,25 +53,63 @@ function matchWakeWord(transcript, targetWake) {
   const wake = targetWake.toLowerCase().trim();
   const variations = [wake];
   
-  if (wake === "cream") {
-    variations.push(
-      "scream", "dream", "clean", "green", "queen", "gleam", "grim", 
-      "creme", "crème", "crane", "chrome", "chroma", "stream", 
-      "cray", "crayola", "kream", "crim", "crimp"
-    );
-  }
-  
-  variations.push("speakzy", "speaksy", "speak-zy", "speaks e", "speaks he", "speaks easy");
+  // Phonetic variations for Speakzy & Cream
+  variations.push(
+    "speakzy", "speaksy", "speak-zy", "speaks e", "speaks he", "speaks easy",
+    "speakeasy", "speak easy", "speak see", "speaks see", "speaks sea",
+    "speak z", "speaks z", "spikzy", "speakzi", "speaksi", "speaker",
+    "spiffy", "spinzy", "speakzy.", "speakzy,", "speak", "speaks",
+    "cream", "scream", "dream", "clean", "green", "queen", "gleam", "grim", 
+    "creme", "crème", "crane", "chrome", "chroma", "stream", 
+    "cray", "crayola", "kream", "crim", "crimp", "krem", "crem",
+    "reem", "ream", "kareem", "karim", "careem", "screen", "claim",
+    "crime", "cream.", "cream,", "creamy", "kreamy"
+  );
+
+  const cleanTranscript = transcript.toLowerCase();
 
   for (const v of variations) {
-    const regex = new RegExp(`\\b${v.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, "i");
-    const match = transcript.match(regex);
+    const pattern = `(?:^|\\b|\\s)${v.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}(?:$|\\b|\\s|[.,!?:;])`;
+    const regex = new RegExp(pattern, "i");
+    const match = cleanTranscript.match(regex);
     if (match) {
-      return { matched: match[0], index: transcript.indexOf(match[0]) };
+      const matchedStr = match[0].trim();
+      const index = cleanTranscript.indexOf(matchedStr);
+      return { matched: matchedStr, index: index >= 0 ? index : 0 };
     }
   }
   
   return null;
+}
+
+function activateWakeWindow() {
+  wakeActive = true;
+  clearTimeout(wakeTimer);
+  wakeTimer = setTimeout(() => {
+    wakeActive = false;
+    logDebug("Wake window expired (6s inactive)");
+  }, 6000);
+}
+
+function resetWakeWindow() {
+  wakeActive = false;
+  clearTimeout(wakeTimer);
+}
+
+let isStartingTimeout = null;
+
+function cleanupRecognition() {
+  clearTimeout(isStartingTimeout);
+  if (recognition) {
+    try {
+      recognition.onstart = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.onresult = null;
+      recognition.abort();
+    } catch (_) {}
+    recognition = null;
+  }
 }
 
 function initRecognition() {
@@ -76,6 +120,9 @@ function initRecognition() {
     logDebug("initRecognition: SpeechRecognition API not supported in this environment");
     return null;
   }
+
+  cleanupRecognition();
+
   const r = new SR();
   r.continuous = true;
   r.interimResults = true;
@@ -83,6 +130,9 @@ function initRecognition() {
 
   r.onstart = () => {
     logDebug("recognition event: onstart (started listening)");
+    consecutiveFailures = 0;
+    isStarting = false;
+    clearTimeout(isStartingTimeout);
     setStatus("listening", true);
   };
 
@@ -90,17 +140,23 @@ function initRecognition() {
     logDebug(`recognition event: onerror: error=${e.error}`);
     setStatus(`err: ${e.error}`);
     running = false;
+    isStarting = false;
+    clearTimeout(isStartingTimeout);
+    consecutiveFailures++;
+    
     // auto-retry unless permission denied
     if (e.error !== "not-allowed" && e.error !== "service-not-allowed") {
-      scheduleRestart();
+      scheduleRestart(e.error);
     }
   };
 
   r.onend = () => {
     logDebug("recognition event: onend");
     running = false;
+    isStarting = false;
+    clearTimeout(isStartingTimeout);
     if (settings.enabled) {
-      scheduleRestart();
+      scheduleRestart("onend");
     } else {
       setStatus("stopped");
     }
@@ -112,81 +168,127 @@ function initRecognition() {
       const transcript = res[0].transcript.toLowerCase().trim();
       logDebug(`recognition event: onresult: transcript="${transcript}" (isFinal=${res.isFinal})`);
       
-      const targetWake = settings.wakeWord || "cream";
+      const targetWake = settings.wakeWord || "speakzy";
       const wakeMatch = matchWakeWord(transcript, targetWake);
-      if (!wakeMatch) {
-        continue;
+      
+      if (wakeMatch) {
+        activateWakeWindow();
+        const after = transcript.slice(wakeMatch.index + wakeMatch.matched.length).trim();
+        
+        chrome.runtime.sendMessage({
+          type: "SPEECH_RESULT_UPDATE",
+          transcript: after,
+          isFinal: res.isFinal
+        }).catch(() => {});
+
+        if (res.isFinal && after) {
+          resetWakeWindow();
+        }
+      } else if (wakeActive) {
+        // Wake word was recently spoken in previous chunk! Treat this as command.
+        logDebug(`onresult: processing via active wake window: "${transcript}"`);
+        
+        chrome.runtime.sendMessage({
+          type: "SPEECH_RESULT_UPDATE",
+          transcript: transcript,
+          isFinal: res.isFinal
+        }).catch(() => {});
+
+        if (res.isFinal) {
+          resetWakeWindow();
+        }
       }
-      
-      const after = transcript.slice(wakeMatch.index + wakeMatch.matched.length).trim();
-      
-      chrome.runtime.sendMessage({
-        type: "SPEECH_RESULT_UPDATE",
-        transcript: after,
-        isFinal: res.isFinal
-      }).catch(() => {});
     }
   };
 
   return r;
 }
 
-function scheduleRestart() {
-  logDebug("scheduleRestart: scheduling restart in 600ms");
+function scheduleRestart(reason = "general") {
   clearTimeout(restartTimer);
-  restartTimer = setTimeout(() => start(), 600);
+  let delay = 600;
+  if (consecutiveFailures > 0) {
+    delay = Math.min(10000, 700 * Math.pow(1.6, consecutiveFailures));
+  }
+  if (reason === "network" || reason === "audio-capture") {
+    delay = Math.max(delay, 2000);
+  }
+  logDebug(`scheduleRestart [${reason}]: scheduling restart in ${Math.round(delay)}ms (failures=${consecutiveFailures})`);
+  restartTimer = setTimeout(() => {
+    restartTimer = null;
+    start();
+  }, delay);
 }
 
 function start() {
-  logDebug(`start: enabled=${settings.enabled}, running=${running}`);
+  logDebug(`start: enabled=${settings.enabled}, running=${running}, isStarting=${isStarting}`);
   if (!settings.enabled) return;
-  if (running) {
-    logDebug("start: already running, skipping start request");
+  if (running || isStarting) {
+    logDebug("start: already running or starting, skipping start request");
     return;
   }
   
-  // Recreate recognition instance on every start to prevent browser-side state corruption
   recognition = initRecognition();
   if (!recognition) return;
 
   try {
+    isStarting = true;
+    clearTimeout(isStartingTimeout);
+    isStartingTimeout = setTimeout(() => {
+      if (isStarting && !running) {
+        logDebug("start timeout: onstart did not fire within 3s. Resetting state and retrying.");
+        isStarting = false;
+        cleanupRecognition();
+        scheduleRestart("start_timeout");
+      }
+    }, 3000);
+
     logDebug("start: calling recognition.start()");
     recognition.start();
   } catch (e) {
+    isStarting = false;
+    clearTimeout(isStartingTimeout);
+    consecutiveFailures++;
     logDebug(`start: call failed: ${e.message || String(e)}`);
-    scheduleRestart(); // Retry on synchronous start failures
+    scheduleRestart("start_catch");
   }
 }
 
 function stop() {
   logDebug("stop: stopping speech recognition");
-  if (recognition && running) {
-    try {
-      recognition.stop();
-    } catch (_) {}
-  }
-  recognition = null;
+  clearTimeout(restartTimer);
+  clearTimeout(isStartingTimeout);
+  restartTimer = null;
+  resetWakeWindow();
+  isStarting = false;
+  cleanupRecognition();
   setStatus("stopped");
 }
 
-// Keep-alive ping to prevent the offscreen document from being closed due to inactivity
+// Keep-alive ping to prevent offscreen document shutdown
 setInterval(() => {
   logDebug("Sending KEEP_ALIVE ping to service worker");
   chrome.runtime.sendMessage({ 
     type: "KEEP_ALIVE",
     payload: { running, status: currentStatus }
   }).catch(() => {});
-}, 15000); // Ping every 15 seconds
+}, 15000);
+
+// Self-healing watchdog to recover from hung/stuck speech engine states
+setInterval(() => {
+  if (settings.enabled && !running && !isStarting && !restartTimer) {
+    logDebug("Watchdog: Speech engine inactive while enabled. Triggering recovery restart.");
+    scheduleRestart("watchdog");
+  }
+}, 4000);
 
 // Boot
 function boot() {
   logDebug("Booting offscreen document script");
   loadSettingsFromUrl();
   
-  // Listen for real-time updates from background script
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type === "SETTINGS_UPDATED") {
-      const oldEnabled = settings.enabled;
       settings = { ...settings, ...msg.settings };
       logDebug(`SETTINGS_UPDATED received: wakeWord="${settings.wakeWord}", enabled=${settings.enabled}`);
       if (settings.enabled) {

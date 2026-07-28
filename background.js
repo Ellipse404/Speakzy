@@ -37,9 +37,15 @@ async function ensureDeviceId() {
 
 async function ensureSettings() {
   const { settings } = await chrome.storage.local.get("settings");
-  if (settings) return settings;
-  await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
-  return DEFAULT_SETTINGS;
+  if (!settings) {
+    await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
+    return DEFAULT_SETTINGS;
+  }
+  if (settings.wakeWord === "speakzy") {
+    settings.wakeWord = "cream";
+    await chrome.storage.local.set({ settings });
+  }
+  return settings;
 }
 
 async function setupOffscreenDocument() {
@@ -157,18 +163,30 @@ function relayToActiveYoutubeTab(message) {
 }
 
 // Lifecycle listeners
-chrome.runtime.onInstalled.addListener(async (details) => {
-  await ensureDeviceId();
-  await ensureSettings();
-  await setupOffscreenDocument();
-  if (details.reason === "install") {
-    // Open the options/onboarding page (asks mic permission through Web Speech API)
-    chrome.tabs.create({ url: chrome.runtime.getURL("options.html?onboarding=1") });
-  }
+chrome.runtime.onInstalled.addListener((details) => {
+  (async () => {
+    try {
+      await ensureDeviceId();
+      await ensureSettings();
+      await setupOffscreenDocument();
+      if (details?.reason === "install") {
+        // Open the options/onboarding page (asks mic permission through Web Speech API)
+        chrome.tabs.create({ url: chrome.runtime.getURL("options.html?onboarding=1") });
+      }
+    } catch (err) {
+      logDebug(`onInstalled error caught: ${err.message || String(err)}`);
+    }
+  })();
 });
 
-chrome.runtime.onStartup.addListener(async () => {
-  await setupOffscreenDocument();
+chrome.runtime.onStartup.addListener(() => {
+  (async () => {
+    try {
+      await setupOffscreenDocument();
+    } catch (err) {
+      logDebug(`onStartup error caught: ${err.message || String(err)}`);
+    }
+  })();
 });
 
 // Settings monitoring

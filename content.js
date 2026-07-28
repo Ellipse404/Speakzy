@@ -76,33 +76,49 @@
   const hudStatus = hudPopup.querySelector("#cream-hud-status");
   const hudProgress = hudPopup.querySelector("#cream-hud-progress");
   let hudTimeout = null;
+  let hudIdleTimer = null;
 
   function showHud(text, isFinal = false) {
     clearTimeout(hudTimeout);
+    clearTimeout(hudIdleTimer);
     hudPopup.classList.add("visible");
     
-    if (text) {
-      hudText.textContent = text;
+    const trimmed = (text || "").trim();
+
+    if (trimmed) {
+      hudText.textContent = trimmed;
       hudText.classList.toggle("final", isFinal);
     } else {
-      hudText.textContent = "listening...";
+      hudText.textContent = "listening for command...";
       hudText.classList.remove("final");
     }
 
     if (isFinal) {
-      hudStatus.textContent = "command received — executing in 2s";
-      hudProgress.style.transition = "none";
-      hudProgress.style.width = "0%";
-      // Trigger reflow
-      hudProgress.offsetHeight;
-      hudProgress.style.transition = "width 2s linear";
-      hudProgress.style.width = "100%";
+      if (trimmed) {
+        hudStatus.textContent = "command received — executing in 2s";
+        hudProgress.style.transition = "none";
+        hudProgress.style.width = "0%";
+        // Trigger reflow
+        hudProgress.offsetHeight;
+        hudProgress.style.transition = "width 2s linear";
+        hudProgress.style.width = "100%";
 
-      // Wait 2 seconds, execute the command, then hide
-      hudTimeout = setTimeout(() => {
-        executeCommand(text);
-        hideHud();
-      }, 2000);
+        // Wait 2 seconds, execute the command, then hide
+        hudTimeout = setTimeout(() => {
+          executeCommand(trimmed);
+          hideHud();
+        }, 2000);
+      } else {
+        // Wake word detected, but no command yet in this chunk!
+        hudStatus.textContent = "CREAM HEARD — SAY YOUR COMMAND NOW";
+        hudProgress.style.transition = "none";
+        hudProgress.style.width = "0%";
+        
+        // Auto-hide HUD after 6 seconds if no command is spoken
+        hudIdleTimer = setTimeout(() => {
+          hideHud();
+        }, 6000);
+      }
     } else {
       hudStatus.textContent = "processing voice input...";
       hudProgress.style.transition = "none";
@@ -113,6 +129,7 @@
   function hideHud() {
     hudPopup.classList.remove("visible");
     clearTimeout(hudTimeout);
+    clearTimeout(hudIdleTimer);
     setTimeout(() => {
       hudText.textContent = "";
       hudStatus.textContent = "SYS.ACTIVE";
@@ -243,6 +260,67 @@
     return false;
   }
 
+  function playFirstResult() {
+    const topResult = document.querySelector(
+      "ytd-video-renderer a#video-title, ytd-video-renderer a#thumbnail, ytd-grid-video-renderer a#video-title, a.yt-simple-endpoint.ytd-video-renderer"
+    );
+    if (topResult) {
+      topResult.click();
+      return true;
+    }
+    return false;
+  }
+
+  function searchAndPlay(query) {
+    if (!query) return false;
+    const cleanQuery = query.trim();
+    
+    const searchInput = document.querySelector(
+      "input#search, input.ytd-searchbox, input[name='search_query'], input[aria-label='Search']"
+    );
+
+    if (searchInput) {
+      try {
+        searchInput.focus();
+        searchInput.value = cleanQuery;
+        searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+        searchInput.dispatchEvent(new Event("change", { bubbles: true }));
+
+        const searchBtn = document.querySelector(
+          "button#search-icon-legacy, button.ytd-searchbox, #search-button button, form#search-form button"
+        );
+        if (searchBtn) {
+          searchBtn.click();
+          return true;
+        }
+        if (searchInput.form) {
+          searchInput.form.submit();
+          return true;
+        }
+      } catch (_) {}
+    }
+
+    // Direct navigation fallback
+    window.location.href = `https://www.youtube.com/results?search_query=${encodeURIComponent(cleanQuery)}`;
+    return true;
+  }
+
+  function scrollPage(direction = "down", pct = null) {
+    const distance = pct ? (window.innerHeight * pct) : (window.innerHeight * 0.7);
+    const deltaY = direction === "down" ? distance : -distance;
+    
+    window.scrollBy({ top: deltaY, behavior: "smooth" });
+
+    // Secondary fallback for YouTube custom container scrolling
+    const app = document.querySelector("ytd-app, #content, html, body");
+    if (app && app.scrollBy) {
+      try {
+        app.scrollBy({ top: deltaY, behavior: "smooth" });
+      } catch (_) {}
+    }
+    return Math.round(distance);
+  }
+
   // === Command execution ===
   function executeCommand(commandText) {
     const video = getVideo();
@@ -258,12 +336,19 @@
     const skipAdKeywords = ["skip ad", "skip ads", "skip the ad", "skip the ads", "skip advertisement", "remove ad", "close ad", "close ads"];
     const muteKeywords = ["mute", "silent", "quiet", "mew", "meat", "shoot", "moat"];
     const unmuteKeywords = ["unmute", "sound", "voice", "un-mute", "on mute"];
-    const volumeUpKeywords = ["volume up", "up", "louder", "increase", "higher", "raise", "increase volume", "volume-up", "out"];
-    const volumeDownKeywords = ["volume down", "down", "quieter", "softer", "decrease", "lower", "reduce", "decrease volume", "volume-down", "town"];
+    const scrollDownKeywords = ["scroll down", "go down", "page down", "slide down", "scroll-down", "down page", "move down", "scrolldown"];
+    const scrollUpKeywords = ["scroll up", "go up", "page up", "slide up", "scroll-up", "up page", "move up", "top page", "scrollup"];
+    const volumeUpKeywords = ["volume up", "louder", "increase", "higher", "raise", "increase volume", "volume-up", "out"];
+    const volumeDownKeywords = ["volume down", "quieter", "softer", "decrease", "lower", "reduce", "decrease volume", "volume-down", "town"];
     const fullscreenKeywords = ["fullscreen", "full screen", "full-screen", "maximize", "window", "big screen", "scream"];
     const backKeywords = ["back", "rewind", "reverse", "previous", "behind", "return", "left", "go back", "mac", "bag", "pack"];
     const forwardKeywords = ["forward", "ahead", "advance", "right", "go forward", "onward", "skip forward"];
     const nextKeywords = ["next video", "next one", "skip video", "forward video", "skip one", "next-video", "skip-video"];
+    const firstResultKeywords = [
+      "play first video", "play first result", "open first video", "open first result", 
+      "play top video", "play top result", "first video", "first result", "top result"
+    ];
+    const genericPlayWords = ["", "video", "song", "music", "audio", "it", "this", "again", "on", "now", "player"];
 
     const containsAny = (str, keywords) => {
       return keywords.some(kw => new RegExp(`\\b${kw.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\b`, "i").test(str) || str.includes(kw));
@@ -295,8 +380,36 @@
       return null;
     };
 
+    // Extract search query if user spoke "play <specific video/song>", "search <query>", or "find <query>"
+    let searchQuery = null;
+    const searchMatch = cmd.match(/^(?:play|search|find|look for|listen to|open)\s+(?:for\s+)?(?:song\s+|video\s+)?(.+)/i);
+    if (searchMatch) {
+      const potentialQuery = searchMatch[1].trim();
+      if (!genericPlayWords.includes(potentialQuery) && potentialQuery.length > 1) {
+        searchQuery = potentialQuery;
+      }
+    }
+
     // Determine action
-    if (containsAny(cmd, pauseKeywords)) {
+    if (containsAny(cmd, firstResultKeywords)) {
+      const clicked = playFirstResult();
+      action = "play_first_result";
+      details = { success: clicked };
+    } else if (searchQuery) {
+      searchAndPlay(searchQuery);
+      action = "search_play";
+      details = { query: searchQuery };
+    } else if (containsAny(cmd, scrollDownKeywords) || cmd === "scroll down") {
+      const pct = parsePercentage(cmd);
+      const dist = scrollPage("down", pct);
+      action = "scroll_down";
+      details = { pixels: dist };
+    } else if (containsAny(cmd, scrollUpKeywords) || cmd === "scroll up") {
+      const pct = parsePercentage(cmd);
+      const dist = scrollPage("up", pct);
+      action = "scroll_up";
+      details = { pixels: dist };
+    } else if (containsAny(cmd, pauseKeywords)) {
       if (video && !video.paused) video.pause();
       action = "pause";
     } else if (containsAny(cmd, playKeywords)) {
@@ -342,6 +455,11 @@
     } else if (containsAny(cmd, nextKeywords) || cmd === "next" || cmd === "skip" || ((cmd.includes("skip") || cmd.includes("next")) && !hasTimeIndicator(cmd))) {
       nextVideo();
       action = "next_video";
+    } else if (cmd.length >= 2 && !["listening...", "sys.active", "cream", "speakzy", "listening for command..."].includes(cmd)) {
+      // Fallback for any unknown phrase spoken after wake word -> perform YouTube search & play!
+      searchAndPlay(cmd);
+      action = "search_play";
+      details = { query: cmd };
     }
 
     flashCommand(`▸ ${action.replace(/_/g, " ")}${details.seconds ? " " + details.seconds + "s" : ""}`);
