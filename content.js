@@ -78,6 +78,15 @@
   let hudTimeout = null;
   let hudIdleTimer = null;
 
+  let inContinuousMode = false;
+  let scrollDirection = null; // "down" or "up"
+  let scrollCounter = 0;
+
+  function resetScrollCounter() {
+    scrollDirection = null;
+    scrollCounter = 0;
+  }
+
   function showHud(text, isFinal = false) {
     clearTimeout(hudTimeout);
     clearTimeout(hudIdleTimer);
@@ -89,12 +98,57 @@
       hudText.textContent = trimmed;
       hudText.classList.toggle("final", isFinal);
     } else {
-      hudText.textContent = "listening for command...";
+      hudText.textContent = inContinuousMode ? "SCROLL MODE ACTIVE — SAY 'DOWN', 'UP', OR 'STOP'" : "listening for command...";
       hudText.classList.remove("final");
     }
 
     if (isFinal) {
       if (trimmed) {
+        const lowerCmd = trimmed.toLowerCase();
+        
+        // Instant exit commands
+        if (["stop", "done", "close", "cancel", "exit"].includes(lowerCmd)) {
+          hideHud();
+          return;
+        }
+
+        // Instant Scroll commands (Continuous Mode with Counter)
+        const isScrollCmd = /(?:scroll|down|up|go down|go up|godown|goup|gold down|gold up|go town|co down|co up|grow down|grow up|going down|going up|page down|page up|slide down|slide up|move down|move up)/i.test(lowerCmd);
+        
+        if (isScrollCmd || inContinuousMode) {
+          const res = executeCommand(trimmed);
+          if (res.action === "scroll_down" || res.action === "scroll_up") {
+            inContinuousMode = true;
+            const dir = res.details.dirLabel || (res.action === "scroll_down" ? "Down" : "Up");
+            const cnt = res.details.counter || scrollCounter;
+            
+            hudText.textContent = `Scrolling ${dir} => +${cnt}`;
+            hudText.classList.add("final");
+            hudStatus.textContent = "CONTINUOUS SCROLL MODE — SAY 'DOWN', 'UP', OR 'STOP'";
+            hudProgress.style.transition = "none";
+            hudProgress.style.width = "100%";
+            
+            // Keep HUD open for 10 seconds of idle scrolling
+            hudIdleTimer = setTimeout(() => {
+              hideHud();
+            }, 10000);
+            return;
+          } else if (res.action !== "unknown" && res.action !== "empty") {
+            // Non-scroll valid command executed -> exit continuous mode
+            hideHud();
+            return;
+          }
+        }
+
+        // Instant Skip Ad execution
+        if (lowerCmd.includes("skip") || lowerCmd.includes("keep") || lowerCmd.includes("ad")) {
+          const res = executeCommand(trimmed);
+          if (res.action === "skip_ad") {
+            hideHud();
+            return;
+          }
+        }
+
         hudStatus.textContent = "command received — executing in 2s";
         hudProgress.style.transition = "none";
         hudProgress.style.width = "0%";
@@ -110,23 +164,25 @@
         }, 2000);
       } else {
         // Wake word detected, but no command yet in this chunk!
-        hudStatus.textContent = "CREAM HEARD — SAY YOUR COMMAND NOW";
+        hudStatus.textContent = inContinuousMode ? "CONTINUOUS SCROLL MODE ACTIVE" : "CREAM HEARD — SAY YOUR COMMAND NOW";
         hudProgress.style.transition = "none";
         hudProgress.style.width = "0%";
         
-        // Auto-hide HUD after 6 seconds if no command is spoken
+        // Auto-hide HUD after 8 seconds if no command is spoken
         hudIdleTimer = setTimeout(() => {
           hideHud();
-        }, 6000);
+        }, 8000);
       }
     } else {
-      hudStatus.textContent = "processing voice input...";
+      hudStatus.textContent = inContinuousMode ? "LISTENING FOR NEXT SCROLL COMMAND..." : "processing voice input...";
       hudProgress.style.transition = "none";
       hudProgress.style.width = "0%";
     }
   }
 
   function hideHud() {
+    inContinuousMode = false;
+    resetScrollCounter();
     hudPopup.classList.remove("visible");
     clearTimeout(hudTimeout);
     clearTimeout(hudIdleTimer);
@@ -205,60 +261,110 @@
   }
 
   function skipAd() {
+    const adContainer = document.querySelector(".video-ads, .html5-video-player, #movie_player, [class*='ytp-ad']");
+    if (!adContainer) return false;
+
     const selectors = [
       ".ytp-ad-skip-button-modern",
       ".ytp-ad-skip-button",
       ".ytp-skip-ad-button",
-      ".ytp-ad-skip-button-container .ytp-ad-skip-button",
+      ".ytp-ad-skip-button-slot button",
+      ".ytp-ad-skip-button-container button",
       "button[class*='skip-ad']",
       "[class*='ytp-ad-skip-button']",
       "button[aria-label*='Skip ad']",
       "button[aria-label*='Skip Ad']",
       "[aria-label*='Skip ad']",
       "[aria-label*='Skip Ad']",
-      ".ytp-ad-skip-button-container button",
-      ".video-ads .ytp-ad-skip-button",
-      ".ytp-ad-skip-button-slot .ytp-ad-skip-button"
+      ".ytp-ad-skip-button-slot",
+      ".ytp-ad-skip-button-container",
+      "button[id^='skip-button']",
+      ".ytp-ad-skip-button-text"
     ];
     
+    let clicked = false;
+
     for (const s of selectors) {
-      const el = document.querySelector(s);
-      if (el) {
-        chrome.runtime.sendMessage({ type: "LOG_DEBUG", msg: `[Content] Found skip button with selector: ${s}` }).catch(() => {});
-        try {
-          el.click();
-          const events = ["mousedown", "mouseup", "click"];
-          for (const evType of events) {
-            const ev = new MouseEvent(evType, {
-              bubbles: true,
-              cancelable: true,
-              view: window
-            });
-            el.dispatchEvent(ev);
-          }
-          return true;
-        } catch (err) {
-          chrome.runtime.sendMessage({ type: "LOG_DEBUG", msg: `[Content] Error clicking skip button: ${err.message}` }).catch(() => {});
+      const elements = adContainer.querySelectorAll(s);
+      for (const el of elements) {
+        if (el && (el.offsetWidth > 0 || el.offsetHeight > 0)) {
+          try {
+            el.click();
+            const events = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
+            for (const evType of events) {
+              const ev = new MouseEvent(evType, { bubbles: true, cancelable: true, view: window });
+              el.dispatchEvent(ev);
+            }
+            if (el.parentElement) {
+              try { el.parentElement.click(); } catch (_) {}
+            }
+            clicked = true;
+          } catch (_) {}
         }
       }
     }
     
-    const elements = document.querySelectorAll("button, div, span");
-    for (const el of elements) {
-      if (el.textContent && /skip\s*ad/i.test(el.textContent.trim())) {
-        chrome.runtime.sendMessage({ type: "LOG_DEBUG", msg: `[Content] Found skip button via textContent: "${el.textContent.trim()}"` }).catch(() => {});
-        try {
-          el.click();
-          const ev = new MouseEvent("click", { bubbles: true, cancelable: true, view: window });
-          el.dispatchEvent(ev);
-          return true;
-        } catch (_) {}
+    if (!clicked) {
+      const elements = adContainer.querySelectorAll("button, div.ytp-ad-text, span.ytp-ad-text");
+      for (const el of elements) {
+        if (el.textContent && /(?:skip|keep)\s*ad/i.test(el.textContent.trim())) {
+          try {
+            el.click();
+            const ev = new MouseEvent("click", { bubbles: true, cancelable: true, view: window });
+            el.dispatchEvent(ev);
+            clicked = true;
+          } catch (_) {}
+        }
       }
     }
     
-    chrome.runtime.sendMessage({ type: "LOG_DEBUG", msg: `[Content] Skip ad button not found in DOM` }).catch(() => {});
-    return false;
+    return clicked;
   }
+
+  let lastAutoSkipTime = 0;
+  let autoSkipThrottleTimer = null;
+
+  function autoSkipAdLoop() {
+    const now = Date.now();
+    const skipped = skipAd();
+    if (skipped && now - lastAutoSkipTime > 3000) {
+      lastAutoSkipTime = now;
+      flashCommand("▸ auto skipped ad");
+    }
+  }
+
+  // === Lightweight Auto-Skip Ad MutationObserver & Event Engine ===
+  function startAutoSkipObserver() {
+    autoSkipAdLoop();
+
+    // Smooth 800ms interval loop
+    setInterval(autoSkipAdLoop, 800);
+
+    // Throttled MutationObserver on video player container
+    const observer = new MutationObserver(() => {
+      if (!autoSkipThrottleTimer) {
+        autoSkipThrottleTimer = setTimeout(() => {
+          autoSkipThrottleTimer = null;
+          autoSkipAdLoop();
+        }, 400);
+      }
+    });
+
+    const target = document.querySelector("#movie_player, .html5-video-player, .video-ads") || document.body;
+    if (target) {
+      observer.observe(target, { childList: true, subtree: true });
+    }
+
+    document.addEventListener("playing", autoSkipAdLoop, true);
+  }
+
+  try {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", startAutoSkipObserver);
+    } else {
+      startAutoSkipObserver();
+    }
+  } catch (_) {}
 
   const ORDINAL_MAP = {
     first: 1, "1st": 1, one: 1,
@@ -454,13 +560,17 @@
     if (!cmd) return { action: "empty" };
 
     // Define all fuzzy lists of keywords (including phonetic mistakes)
-    const playKeywords = ["play", "resume", "start", "continue", "go", "plan", "clay", "place", "player", "played", "plague", "lane", "playing"];
+    const playKeywords = ["play", "resume", "start", "continue", "plan", "clay", "place", "player", "played", "plague", "lane", "playing"];
     const pauseKeywords = ["pause", "stop", "halt", "freeze", "pass", "claws", "cause", "boss", "pose", "abort", "pulse", "parts", "baths"];
-    const skipAdKeywords = ["skip ad", "skip ads", "skip the ad", "skip the ads", "skip advertisement", "remove ad", "close ad", "close ads"];
+    const skipAdKeywords = [
+      "skip ad", "skip ads", "skip the ad", "skip the ads", "skip advertisement", "remove ad", "close ad", "close ads",
+      "keep ad", "keep ads", "keep the ad", "keep the ads", "skipped ad", "skipped ads", "skip add", "skip at",
+      "scape ad", "skate ad", "sleep ad", "ship ad", "pass ad", "bypass ad"
+    ];
     const muteKeywords = ["mute", "silent", "quiet", "mew", "meat", "shoot", "moat"];
     const unmuteKeywords = ["unmute", "sound", "voice", "un-mute", "on mute"];
-    const scrollDownKeywords = ["scroll down", "go down", "page down", "slide down", "scroll-down", "down page", "move down", "scrolldown"];
-    const scrollUpKeywords = ["scroll up", "go up", "page up", "slide up", "scroll-up", "up page", "move up", "top page", "scrollup"];
+    const scrollDownKeywords = ["scroll down", "go down", "godown", "gold down", "go town", "co down", "grow down", "going down", "down", "down page", "page down", "slide down", "scroll-down", "move down", "scrolldown"];
+    const scrollUpKeywords = ["scroll up", "go up", "goup", "gold up", "go top", "co up", "grow up", "going up", "up", "up page", "page up", "slide up", "scroll-up", "move up", "scrollup"];
     const volumeUpKeywords = ["volume up", "louder", "increase", "higher", "raise", "increase volume", "volume-up", "out"];
     const volumeDownKeywords = ["volume down", "quieter", "softer", "decrease", "lower", "reduce", "decrease volume", "volume-down", "town"];
     const fullscreenKeywords = ["fullscreen", "full screen", "full-screen", "maximize", "window", "big screen", "scream"];
@@ -547,16 +657,38 @@
         video.play();
         action = "play";
       }
-    } else if (containsAny(cmd, scrollDownKeywords) || cmd === "scroll down") {
+    } else if (containsAny(cmd, volumeUpKeywords) || cmd.includes("volume up") || cmd.includes("increase volume")) {
+      const pct = parsePercentage(cmd) ?? 0.2;
+      if (video) video.volume = Math.min(1, video.volume + pct);
+      action = "volume_up";
+      details = { amount: pct * 100 };
+    } else if (containsAny(cmd, volumeDownKeywords) || cmd.includes("volume down") || cmd.includes("decrease volume")) {
+      const pct = parsePercentage(cmd) ?? 0.2;
+      if (video) video.volume = Math.max(0, video.volume - pct);
+      action = "volume_down";
+      details = { amount: pct * 100 };
+    } else if (!cmd.includes("volume") && !cmd.includes("sound") && !cmd.includes("audio") && (containsAny(cmd, scrollDownKeywords) || cmd === "scroll down" || cmd === "down")) {
+      if (scrollDirection !== "down") {
+        scrollDirection = "down";
+        scrollCounter = 1;
+      } else {
+        scrollCounter++;
+      }
       const pct = parsePercentage(cmd);
       const dist = scrollPage("down", pct);
       action = "scroll_down";
-      details = { pixels: dist };
-    } else if (containsAny(cmd, scrollUpKeywords) || cmd === "scroll up") {
+      details = { pixels: dist, counter: scrollCounter, dirLabel: "Down" };
+    } else if (!cmd.includes("volume") && !cmd.includes("sound") && !cmd.includes("audio") && (containsAny(cmd, scrollUpKeywords) || cmd === "scroll up" || cmd === "up")) {
+      if (scrollDirection !== "up") {
+        scrollDirection = "up";
+        scrollCounter = 1;
+      } else {
+        scrollCounter++;
+      }
       const pct = parsePercentage(cmd);
       const dist = scrollPage("up", pct);
       action = "scroll_up";
-      details = { pixels: dist };
+      details = { pixels: dist, counter: scrollCounter, dirLabel: "Up" };
     } else if (containsAny(cmd, pauseKeywords)) {
       if (video && !video.paused) video.pause();
       action = "pause";
@@ -567,16 +699,6 @@
       const skipped = skipAd();
       action = "skip_ad";
       details = { success: skipped };
-    } else if (containsAny(cmd, volumeUpKeywords)) {
-      const pct = parsePercentage(cmd) ?? 0.2;
-      if (video) video.volume = Math.min(1, video.volume + pct);
-      action = "volume_up";
-      details = { amount: pct * 100 };
-    } else if (containsAny(cmd, volumeDownKeywords)) {
-      const pct = parsePercentage(cmd) ?? 0.2;
-      if (video) video.volume = Math.max(0, video.volume - pct);
-      action = "volume_down";
-      details = { amount: pct * 100 };
     } else if (containsAny(cmd, unmuteKeywords)) {
       if (video) video.muted = false;
       action = "unmute";

@@ -168,7 +168,7 @@ function initRecognition() {
       const transcript = res[0].transcript.toLowerCase().trim();
       logDebug(`recognition event: onresult: transcript="${transcript}" (isFinal=${res.isFinal})`);
       
-      const targetWake = settings.wakeWord || "speakzy";
+      const targetWake = settings.wakeWord || "cream";
       const wakeMatch = matchWakeWord(transcript, targetWake);
       
       if (wakeMatch) {
@@ -182,7 +182,12 @@ function initRecognition() {
         }).catch(() => {});
 
         if (res.isFinal && after) {
-          resetWakeWindow();
+          const isContinuous = /(?:scroll|down|up|go down|go up|godown|goup|gold down|gold up|go town|co down|co up|grow down|grow up|going down|going up|page down|page up|slide down|slide up|move down|move up)/i.test(after);
+          if (isContinuous) {
+            activateWakeWindow(); // Refresh 10s window OPEN for next scroll!
+          } else {
+            resetWakeWindow();
+          }
         }
       } else if (wakeActive) {
         // Wake word was recently spoken in previous chunk! Treat this as command.
@@ -195,7 +200,12 @@ function initRecognition() {
         }).catch(() => {});
 
         if (res.isFinal) {
-          resetWakeWindow();
+          const isContinuous = /(?:scroll|down|up|go down|go up|godown|goup|gold down|gold up|go town|co down|co up|grow down|grow up|going down|going up|page down|page up|slide down|slide up|move down|move up)/i.test(transcript);
+          if (isContinuous) {
+            activateWakeWindow(); // Refresh 10s window OPEN for next scroll!
+          } else {
+            resetWakeWindow();
+          }
         }
       }
     }
@@ -206,8 +216,10 @@ function initRecognition() {
 
 function scheduleRestart(reason = "general") {
   clearTimeout(restartTimer);
-  let delay = 600;
-  if (consecutiveFailures > 0) {
+  let delay = 500;
+  if (consecutiveFailures === 0 && (reason === "onend" || reason === "post_final")) {
+    delay = 100;
+  } else if (consecutiveFailures > 0) {
     delay = Math.min(10000, 700 * Math.pow(1.6, consecutiveFailures));
   }
   if (reason === "network" || reason === "audio-capture") {
@@ -280,7 +292,16 @@ setInterval(() => {
     logDebug("Watchdog: Speech engine inactive while enabled. Triggering recovery restart.");
     scheduleRestart("watchdog");
   }
-}, 4000);
+}, 2500);
+
+// Periodic 45s speech engine refresh to clear Chrome's Web Speech API memory buffer
+setInterval(() => {
+  if (settings.enabled && running && !wakeActive && !isStarting) {
+    logDebug("Periodic 45s speech engine refresh for maximum responsiveness.");
+    cleanupRecognition();
+    scheduleRestart("periodic_refresh");
+  }
+}, 45000);
 
 // Boot
 function boot() {
