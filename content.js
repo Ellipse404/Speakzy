@@ -260,15 +260,138 @@
     return false;
   }
 
-  function playFirstResult() {
-    const topResult = document.querySelector(
-      "ytd-video-renderer a#video-title, ytd-video-renderer a#thumbnail, ytd-grid-video-renderer a#video-title, a.yt-simple-endpoint.ytd-video-renderer"
-    );
-    if (topResult) {
-      topResult.click();
+  const ORDINAL_MAP = {
+    first: 1, "1st": 1, one: 1,
+    second: 2, "2nd": 2, two: 2,
+    third: 3, "3rd": 3, three: 3,
+    fourth: 4, "4th": 4, four: 4,
+    fifth: 5, "5th": 5, five: 5,
+    sixth: 6, "6th": 6, six: 6,
+    seventh: 7, "7th": 7, seven: 7,
+    eighth: 8, "8th": 8, eight: 8,
+    ninth: 9, "9th": 9, nine: 9,
+    tenth: 10, "10th": 10, ten: 10,
+    eleventh: 11, "11th": 11,
+    twelfth: 12, "12th": 12,
+    thirteenth: 13, "13th": 13,
+    fourteenth: 14, "14th": 14,
+    fifteenth: 15, "15th": 15
+  };
+
+  function parseVideoIndex(str) {
+    const digitMatch = str.match(/(?:video|number|result|\b)\s*#?(\d+)/i) || str.match(/(\d+)\s*(?:st|nd|rd|th)?\s*(?:video|result)?/i);
+    if (digitMatch) {
+      const num = parseInt(digitMatch[1], 10);
+      if (num >= 1 && num <= 50) return num;
+    }
+    for (const key in ORDINAL_MAP) {
+      if (new RegExp(`\\b${key}\\b`, "i").test(str)) {
+        return ORDINAL_MAP[key];
+      }
+    }
+    return null;
+  }
+
+  function playNthVideo(n) {
+    const cardSelector = [
+      "ytd-video-renderer",
+      "ytd-grid-video-renderer",
+      "ytd-compact-video-renderer",
+      "ytd-rich-item-renderer",
+      "ytd-playlist-video-renderer"
+    ].join(", ");
+
+    const cards = Array.from(document.querySelectorAll(cardSelector));
+    const validLinks = [];
+    const seenHrefs = new Set();
+
+    if (cards.length > 0) {
+      for (const card of cards) {
+        const link = card.querySelector("a#video-title, a#video-title-link, a#thumbnail, a.yt-simple-endpoint");
+        if (link && link.href && link.href.includes("/watch")) {
+          try {
+            const urlObj = new URL(link.href, location.origin);
+            const videoId = urlObj.searchParams.get("v") || link.href;
+            if (!seenHrefs.has(videoId)) {
+              seenHrefs.add(videoId);
+              validLinks.push(link);
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    // Fallback if cards selector yielded fewer items
+    if (validLinks.length === 0) {
+      const allLinks = Array.from(document.querySelectorAll("a#video-title, a#video-title-link, a.yt-simple-endpoint")).filter(el => el.href && el.href.includes("/watch"));
+      for (const link of allLinks) {
+        try {
+          const urlObj = new URL(link.href, location.origin);
+          const videoId = urlObj.searchParams.get("v") || link.href;
+          if (!seenHrefs.has(videoId)) {
+            seenHrefs.add(videoId);
+            validLinks.push(link);
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (validLinks.length > 0) {
+      const idx = Math.max(0, Math.min(n - 1, validLinks.length - 1));
+      const target = validLinks[idx];
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.click();
       return true;
     }
     return false;
+  }
+
+  function playVideoByTitle(query) {
+    if (!query) return false;
+    const cleanQuery = query.toLowerCase().trim();
+    const queryWords = cleanQuery.split(/\s+/).filter(w => w.length > 1);
+    if (queryWords.length === 0) return false;
+
+    const selector = [
+      "ytd-video-renderer a#video-title",
+      "ytd-grid-video-renderer a#video-title",
+      "ytd-compact-video-renderer a#video-title",
+      "ytd-rich-item-renderer a#video-title-link",
+      "ytd-rich-item-renderer a#video-title",
+      "a#video-title"
+    ].join(", ");
+
+    const links = Array.from(document.querySelectorAll(selector)).filter(el => el.href && el.href.includes("/watch"));
+
+    // Check 1: exact/full words match
+    for (const link of links) {
+      const title = (link.textContent || link.title || "").toLowerCase();
+      const matchesAll = queryWords.every(word => title.includes(word));
+      if (matchesAll) {
+        link.scrollIntoView({ behavior: "smooth", block: "center" });
+        link.click();
+        return true;
+      }
+    }
+
+    // Check 2: partial word match if at least 2 words
+    if (queryWords.length >= 2) {
+      for (const link of links) {
+        const title = (link.textContent || link.title || "").toLowerCase();
+        const matchCount = queryWords.filter(word => title.includes(word)).length;
+        if (matchCount >= Math.ceil(queryWords.length * 0.6)) {
+          link.scrollIntoView({ behavior: "smooth", block: "center" });
+          link.click();
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function playFirstResult() {
+    return playNthVideo(1);
   }
 
   function searchAndPlay(query) {
@@ -380,9 +503,9 @@
       return null;
     };
 
-    // Extract search query if user spoke "play <specific video/song>", "search <query>", or "find <query>"
+    // Extract search query strictly if user explicitly spoke "search <query>", "search for <query>", or "find <query>"
     let searchQuery = null;
-    const searchMatch = cmd.match(/^(?:play|search|find|look for|listen to|open)\s+(?:for\s+)?(?:song\s+|video\s+)?(.+)/i);
+    const searchMatch = cmd.match(/^(?:search|find|look for)\s+(?:for\s+)?(?:song\s+|video\s+)?(.+)/i);
     if (searchMatch) {
       const potentialQuery = searchMatch[1].trim();
       if (!genericPlayWords.includes(potentialQuery) && potentialQuery.length > 1) {
@@ -390,15 +513,40 @@
       }
     }
 
+    // Extract title query if user spoke "play <specific on-page video title>"
+    let playTitleQuery = null;
+    const playMatch = cmd.match(/^play\s+(?:song\s+|video\s+)?(.+)/i);
+    if (playMatch) {
+      const potentialQuery = playMatch[1].trim();
+      if (!genericPlayWords.includes(potentialQuery) && potentialQuery.length > 1) {
+        playTitleQuery = potentialQuery;
+      }
+    }
+
+    const videoIndexMatch = parseVideoIndex(cmd);
+
     // Determine action
     if (containsAny(cmd, firstResultKeywords)) {
       const clicked = playFirstResult();
       action = "play_first_result";
       details = { success: clicked };
+    } else if (videoIndexMatch && (cmd.includes("video") || cmd.includes("result") || cmd.includes("number") || cmd.includes("play") || cmd.includes("open"))) {
+      const clicked = playNthVideo(videoIndexMatch);
+      action = "play_nth_video";
+      details = { index: videoIndexMatch, success: clicked };
     } else if (searchQuery) {
       searchAndPlay(searchQuery);
       action = "search_play";
       details = { query: searchQuery };
+    } else if (playTitleQuery) {
+      const matchedOnPage = playVideoByTitle(playTitleQuery);
+      if (matchedOnPage) {
+        action = "play_matched_title";
+        details = { query: playTitleQuery, success: true };
+      } else if (video && video.paused) {
+        video.play();
+        action = "play";
+      }
     } else if (containsAny(cmd, scrollDownKeywords) || cmd === "scroll down") {
       const pct = parsePercentage(cmd);
       const dist = scrollPage("down", pct);
@@ -455,11 +603,6 @@
     } else if (containsAny(cmd, nextKeywords) || cmd === "next" || cmd === "skip" || ((cmd.includes("skip") || cmd.includes("next")) && !hasTimeIndicator(cmd))) {
       nextVideo();
       action = "next_video";
-    } else if (cmd.length >= 2 && !["listening...", "sys.active", "cream", "speakzy", "listening for command..."].includes(cmd)) {
-      // Fallback for any unknown phrase spoken after wake word -> perform YouTube search & play!
-      searchAndPlay(cmd);
-      action = "search_play";
-      details = { query: cmd };
     }
 
     flashCommand(`▸ ${action.replace(/_/g, " ")}${details.seconds ? " " + details.seconds + "s" : ""}`);
